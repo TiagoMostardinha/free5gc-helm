@@ -1,0 +1,713 @@
+# =============================================================================
+# free5GC Global Values File
+# Consolidated configuration for all 5GC components deployed via Helm
+# Usage: helm install free5gc ./free5gc -f global-values.yaml
+# =============================================================================
+# =============================================================================
+# GLOBAL PARAMETERS
+# Shared across all subcharts
+# =============================================================================
+global:
+  projectName: free5gc
+  name: free5gc
+  userPlaneArchitecture: single
+  uesubnet: 10.60.0.0/16
+  # --- NRF Service ---
+  nrf:
+    service:
+      name: nrf-nnrf
+      type: ClusterIP
+      port: "8000"
+      nodePort: "30800"
+  # --- SBI Scheme ---
+  sbi:
+    scheme: http
+  # --- AMF ---
+  amf:
+    n2if: # NGAP
+      ipAddress: 10.100.50.249
+    service:
+      ngap:
+        enabled: true # Enable this configuration so N2 is exposed as a NodePort service. This is required for external gNB to connect to AMF.
+        name: amf-n2
+        port: 38412
+        nodeport: 31412
+        protocol: SCTP
+        type: NodePort
+  # --- SMF ---
+  smf:
+    n4if:
+      ipAddress: 10.100.50.244
+  # --- WebUI ---
+  webui:
+    service:
+      name: webui-nbiling
+      type: ClusterIP
+      port: "2122"
+  # --- CGF ---
+  cgf:
+    service:
+      name: webui-ncgf
+      type: ClusterIP
+      port: "2121"
+  # --- N2 Network (NGAP) ---
+  n2network:
+    enabled: false # Since N2 is exposed as a NodePort service, this network configuration is not needed. Set to false to avoid unnecessary resource allocation and potential conflicts.
+    name: n2network
+    type: ipvlan
+    masterIf: ens18
+    subnetIP: 10.100.50.248
+    cidr: 29
+    gatewayIP: 10.100.50.254
+    excludeIP: 10.100.50.254
+  # --- N3 Network (GTP-U) ---
+  n3network:
+    enabled: true
+    name: n3network
+    type: ipvlan
+    masterIf: ens18
+    subnetIP: 10.0.22.0
+    cidr: 23
+    gatewayIP: 10.0.22.1
+    excludeIP: 10.0.22.1
+  # --- N4 Network (PFCP) ---
+  n4network:
+    enabled: true
+    name: n4network
+    type: ipvlan
+    masterIf: ens18
+    subnetIP: 10.100.50.240
+    cidr: 29
+    gatewayIP: 10.100.50.246
+    excludeIP: 10.100.50.246
+  # --- N6 Network (DN) ---
+  n6network:
+    enabled: true
+    name: n6network
+    type: ipvlan
+    masterIf: ens19
+    subnetIP: 10.0.22.0
+    cidr: 23
+    gatewayIP: 10.0.22.1
+    excludeIP: 10.0.23.254
+  # --- N9 Network (inter-UPF) ---
+  n9network:
+    enabled: false
+# =============================================================================
+# SUBCHART DEPLOYMENT FLAGS
+# Enable/disable individual 5GC NFs
+# =============================================================================
+deployMongoDb: true
+deployAmf: true
+deployAusf: true
+deployChf: true
+deployN3iwf: false
+deployNef: true
+deployNrf: true
+deployNssf: true
+deployPcf: true
+deploySmf: true
+deployUdm: true
+deployUdr: true
+deployUpf: true
+deployWebui: true
+deployDbPython: false
+# =============================================================================
+# MONGODB
+# =============================================================================
+mongodb:
+  fullnameOverride: "mongodb"
+  useStatefulSet: true
+  auth:
+    enabled: false
+  persistence:
+    size: 6Gi
+    mountPath: /bitnami/mongodb/data/db/
+  service:
+    name: mongodb
+    type: ClusterIP
+    port: 27017
+    nodePort: "30017"
+# =============================================================================
+# NRF - Network Repository Function
+# =============================================================================
+free5gc-nrf:
+  db:
+    enabled: false
+  mongodb:
+    fullnameOverride: "mongodb"
+    useStatefulSet: true
+    auth:
+      enabled: false
+    persistence:
+      size: 6Gi
+      mountPath: /bitnami/mongodb/data/db/
+    service:
+      name: mongodb
+      type: ClusterIP
+      port: 27017
+      nodePort: "30017"
+  nrf:
+    name: nrf
+    replicaCount: 1
+    image:
+      name: free5gc/nrf
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    configuration:
+      serviceNameList: |-
+        - nnrf-nfm
+        - nnrf-disc
+      oauthConfiguration: |-
+        oauth: false
+      configuration: |-
+        DefaultPlmnId:
+          mcc: 001
+          mnc: 01
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# AMF - Access and Mobility Management Function
+# =============================================================================
+free5gc-amf:
+  isNgapNeeded: true
+  amf:
+    name: amf
+    replicaCount: 1
+    image:
+      name: free5gc/amf
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceNameList: |-
+        - namf-comm
+        - namf-evts
+        - namf-mt
+        - namf-loc
+        - namf-oam
+      configuration: |-
+        amfName: AMF
+        serviceNameList:
+          - namf-comm
+          - namf-evts
+          - namf-mt
+          - namf-loc
+          - namf-oam
+        servedGuamiList:
+          - plmnId:
+              mcc: 001
+              mnc: 01
+            amfId: cafe00
+        supportTaiList:
+          - plmnId:
+              mcc: 001
+              mnc: 01
+            tac: 000001
+        plmnSupportList:
+          - plmnId:
+              mcc: 001
+              mnc: 01
+            snssaiList:
+              - sst: 1
+        supportDnnList:
+          - internet
+        security:
+          integrityOrder:
+            - NIA2
+          cipheringOrder:
+            - NEA0
+        networkName:
+          full: free5GC
+          short: free
+        ngapIE:
+          mobilityRestrictionList:
+            enable: true
+          maskedIMEISV:
+            enable: true
+          redirectionVoiceFallback:
+            enable: false
+        nasIE:
+          networkFeatureSupport5GS:
+            enable: true
+            length: 1
+            imsVoPS: 0
+            emc: 0
+            emf: 0
+            iwkN26: 0
+            mpsi: 0
+            emcN3: 0
+            mcsi: 0
+        t3502Value: 720
+        t3512Value: 3600
+        non3gppDeregTimerValue: 3240
+        t3513:
+          enable: true
+          expireTime: 6s
+          maxRetryTimes: 4
+        t3522:
+          enable: true
+          expireTime: 6s
+          maxRetryTimes: 4
+        t3550:
+          enable: true
+          expireTime: 6s
+          maxRetryTimes: 4
+        t3555:
+          enable: true
+          expireTime: 6s
+          maxRetryTimes: 4
+        t3560:
+          enable: true
+          expireTime: 6s
+          maxRetryTimes: 4
+        t3565:
+          enable: true
+          expireTime: 6s
+          maxRetryTimes: 4
+        t3570:
+          enable: true
+          expireTime: 6s
+          maxRetryTimes: 4
+        locality: area1
+        sctp:
+          numOstreams: 3
+          maxInstreams: 5
+          maxAttempts: 2
+          maxInitTimeout: 2
+        defaultUECtxReq: false
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# AUSF - Authentication Server Function
+# =============================================================================
+free5gc-ausf:
+  ausf:
+    name: ausf
+    replicaCount: 1
+    image:
+      name: free5gc/ausf
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceNameList: |-
+        - nausf-auth
+      configuration: |-
+        plmnSupportList:
+          - mcc: 001
+            mnc: 01
+        groupId: ausfGroup001
+        eapAkaSupiImsiPrefix: false
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# CHF - Charging Function
+# =============================================================================
+free5gc-chf:
+  mongodb:
+    service:
+      name: mongodb
+      type: ClusterIP
+      port: 27017
+      nodePort: "30017"
+  chf:
+    name: chf
+    replicaCount: 1
+    image:
+      name: free5gc/chf
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceNameList: |-
+        - nchf-convergedcharging
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# SMF - Session Management Function
+# =============================================================================
+free5gc-smf:
+  isPfcpNeeded: true
+  smf:
+    name: smf
+    replicaCount: 1
+    image:
+      name: free5gc/smf
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceNameList: |-
+        - nsmf-pdusession
+        - nsmf-event-exposure
+        - nsmf-oam
+      urrConfiguration: |-
+        urrPeriod: 10 # default usage report period in seconds
+        urrThreshold: 1000 # default usage report threshold in bytes
+        requestedUnit: 1000
+      configuration: |-
+        smfName: SMF
+        snssaiInfos:
+          - sNssai:
+              sst: 1
+            dnnInfos:
+              - dnn: internet
+                # dnaiList:
+                #   - mec
+                dns:
+                  ipv4: 193.136.92.73
+                  ipv6: 2001:4860:4860::8888
+        plmnList:
+          - mcc: 001
+            mnc: 01
+        userplaneInformation:
+          upNodes:
+            gNB1:
+              type: AN
+            UPF:
+              type: UPF
+              nodeID: 10.100.50.241
+              sNssaiUpfInfos:
+                - sNssai:
+                    sst: 1
+                  dnnUpfInfoList:
+                    - dnn: internet
+                      pools:
+                        - cidr: 10.60.0.0/16
+              interfaces:
+                - interfaceType: N3
+                  endpoints:
+                    - 10.0.22.108
+                  networkInstances:
+                    - internet
+          links:
+            - A: gNB1
+              B: UPF
+        locality: area1
+        t3591:
+          enable: true
+          expireTime: 16s
+          maxRetryTimes: 3
+        t3592:
+          enable: true
+          expireTime: 16s
+          maxRetryTimes: 3
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# UDM - Unified Data Management
+# =============================================================================
+free5gc-udm:
+  udm:
+    name: udm
+    replicaCount: 1
+    image:
+      name: free5gc/udm
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceNameList: |-
+        - nudm-sdm
+        - nudm-uecm
+        - nudm-ueau
+        - nudm-ee
+        - nudm-pp
+      configuration: |-
+        # test data set from TS33501-f60 Annex C.4
+        SuciProfile:
+          - ProtectionScheme: 1 # Protect Scheme: Profile A
+            PrivateKey: c53c22208b61860b06c62e5406a7b330c2b577aa5558981510d128247d38bd1d
+            PublicKey: 5a8d38864820197c3394b92613b20b91633cbd897119273bf8e4a6f4eec0a650
+          - ProtectionScheme: 2 # Protect Scheme: Profile B
+            PrivateKey: F1AB1074477EBCC7F554EA1C5FC368B1616730155E0041AC447D6301975FECDA
+            PublicKey: 0472DA71976234CE833A6907425867B82E074D44EF907DFB4B3E21C1C2256EBCD15A7DED52FCBB097A4ED250E036C7B9C8C7004C4EEDC4F068CD7BF8D3F900E3B4
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# UDR - Unified Data Repository
+# =============================================================================
+free5gc-udr:
+  db:
+    enabled: false
+  mongodb:
+    service:
+      name: mongodb
+      type: ClusterIP
+      port: 27017
+      nodePort: "30017"
+  udr:
+    name: udr
+    replicaCount: 1
+    image:
+      name: free5gc/udr
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceNameList: |-
+      configuration: |-
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+  free5gc:
+    configuration:
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# NSSF - Network Slice Selection Function
+# =============================================================================
+free5gc-nssf:
+  nssf:
+    name: nssf
+    replicaCount: 1
+    image:
+      name: free5gc/nssf
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceNameList: |-
+        - nnssf-nsselection
+        - nnssf-nssaiavailability
+      configuration: |-
+        nssfName: NSSF
+        supportedPlmnList:
+          - mcc: 001
+            mnc: 01
+        supportedNssaiInPlmnList:
+          - plmnId:
+              mcc: 001
+              mnc: 01
+            supportedSnssaiList:
+              - sst: 1
+        taList:
+          - tai:
+              plmnId:
+                mcc: 001
+                mnc: 01
+              tac: 000001
+            accessType: 3GPP_ACCESS
+            supportedSnssaiList:
+              - sst: 1
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# PCF - Policy Control Function
+# =============================================================================
+free5gc-pcf:
+  mongodb:
+    service:
+      name: mongodb
+      type: ClusterIP
+      port: 27017
+      nodePort: "30017"
+  pcf:
+    name: pcf
+    replicaCount: 1
+    image:
+      name: free5gc/pcf
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceList: |-
+        - serviceName: npcf-am-policy-control
+        - serviceName: npcf-smpolicycontrol
+          suppFeat: 3fff
+        - serviceName: npcf-bdtpolicycontrol
+        - serviceName: npcf-policyauthorization
+          suppFeat: 3
+        - serviceName: npcf-eventexposure
+        - serviceName: npcf-ue-policy-control
+      configuration: |-
+        pcfName: PCF
+        timeFormat: 2019-01-02 15:04:05
+        defaultBdtRefId: BdtPolicyId-
+        locality: area1
+      metrics:
+        enable: false
+        scheme: http
+        port: 9091
+        namespace: free5gc
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# NEF - Network Exposure Function
+# =============================================================================
+free5gc-nef:
+  mongodb:
+    service:
+      name: mongodb
+      type: ClusterIP
+      port: 27017
+      nodePort: "30017"
+  nef:
+    name: nef
+    replicaCount: 1
+    image:
+      name: free5gc/nef
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      port: 80
+    configuration:
+      serviceList: |-
+        - serviceName: nnef-pfdmanagement
+        - serviceName: nnef-oam
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# UPF - User Plane Function
+# =============================================================================
+free5gc-upf:
+  # --- Single UPF (used when userPlaneArchitecture=single) ---
+  upf:
+    name: upf
+    replicaCount: 1
+    image:
+      name: free5gc/upf
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    configmap:
+      wrapperAdditionalCommands: |
+        ip route replace 10.0.22.0/23 dev n6 table 1200
+        ip route replace default via 10.0.22.1 dev n6 table 1200
+    n3if: # GTP-U
+      ipAddress: 10.0.22.108
+    n4if: # PFCP
+      ipAddress: 10.100.50.241
+    n6if: # DN
+      ipAddress: 10.0.23.60
+    configuration:
+      dnnList:
+        - dnn: internet
+          cidr: 10.60.0.0/16
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# WebUI - Web Console
+# =============================================================================
+free5gc-webui:
+  db:
+    enabled: false
+  mongodb:
+    service:
+      name: mongodb
+      type: ClusterIP
+      port: 27017
+      nodePort: "30017"
+  webui:
+    name: webui
+    replicaCount: 1
+    image:
+      name: free5gc/webui
+      tag: v4.2.0
+      pullPolicy: IfNotPresent
+    service:
+      name: webui-service
+      type: NodePort
+      port: 5000
+      nodePort: 30500
+    configuration:
+      logger:
+        enable: true
+        level: info
+        reportCaller: false
+# =============================================================================
+# DbPython - Database Initialization
+# =============================================================================
+free5gc-dbpython:
+  mongodb:
+    service:
+      name: mongodb
+      type: ClusterIP
+      port: 27017
+      nodePort: "30017"
+  dbpython:
+    name: dbpython
+    replicaCount: 1
+    image:
+      name: towards5gs/free5gc-dbpython
+      pullPolicy: IfNotPresent
